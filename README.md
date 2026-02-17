@@ -1,1 +1,5 @@
-# urfu-cake-shop-notification-service
+# Notification Service
+
+## Назначение
+
+### Сервис отвечает за уведомления пользователей.
