@@ -11,6 +11,16 @@ spring:
           starttls:
             enable: true
 
+cake:
+  kafka:
+    streams:
+      application-id: notification-service
+      bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+      num-stream-threads: 2
+      topology-logging: true
+      dlq:
+        enable: true
+
 management:
   endpoints:
     web:
