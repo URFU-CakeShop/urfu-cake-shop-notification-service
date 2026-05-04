@@ -8,6 +8,12 @@ services:
       ZOOKEEPER_TOOLS_LOG4J_PROP: "INFO,CONSOLE"
     command: >
       bash -c "export KAFKA_OPTS='-Dzookeeper.admin.enableServer=false' && /etc/confluent/docker/run"
+    healthcheck:
+      test: [ "CMD", "nc", "-z", "localhost", "2181" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     networks:
       - cake-shop-network
 
@@ -15,7 +21,8 @@ services:
     image: confluentinc/cp-kafka:7.4.0
     container_name: kafka
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     ports:
       - "9092:9092"
     environment:

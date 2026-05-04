@@ -1,37 +1,52 @@
 package ru.urfu.cake.shop.notification.controller;
 
-
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.mail.MessagingException;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
-import ru.urfu.cake.shop.notification.dto.EmailRequest;
-import ru.urfu.cake.shop.notification.service.EmailService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import ru.urfu.cake.shop.notification.dto.Request.EmailRequest;
+import ru.urfu.cake.shop.notification.service.EmailService;
+
 
 @RestController
 @RequestMapping("/notification")
 @RequiredArgsConstructor
-@Tag(name = "Notification sender", description = "Отправляет сообщение")
+@Tag(name = "Notifications", description = "Email sending")
 public class SenderController {
 
     private final EmailService emailService;
 
     @PostMapping
-    @Operation(summary = "Отправить email напрямую (тест)")
+    @Operation(summary = "Send an email directly (for testing)")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Письмо успешно отправлено"),
-            @ApiResponse(responseCode = "500", description = "Ошибка SMTP при отправке")
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Email sent successfully",
+                    content = @Content(schema = @Schema(implementation = ru.urfu.cake.shop.notification.dto.Response.ApiResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "Validation failed / Bad request",
+                    content = @Content(schema = @Schema(implementation = ru.urfu.cake.shop.notification.dto.Response.ApiResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "500",
+                    description = "SMTP transport error / Internal server error",
+                    content = @Content(schema = @Schema(implementation = ru.urfu.cake.shop.notification.dto.Response.ApiResponse.class))
+            )
     })
-    public ResponseEntity<String> emailRequest(@RequestBody EmailRequest request) {
-        try {
-            emailService.sendHtmlEmail(request);
-            return ResponseEntity.ok("Сообщение успешно отправлено");
-        } catch (MessagingException e) {
-            return ResponseEntity.status(500).body("Ошибка при отправке: " + e.getMessage());
-        }
+    public ResponseEntity<ru.urfu.cake.shop.notification.dto.Response.ApiResponse<EmailRequest>> sendEmail(
+            @Valid @RequestBody EmailRequest request) throws MessagingException {
+        emailService.sendHtmlEmail(request);
+        return ResponseEntity.ok(new ru.urfu.cake.shop.notification.dto.Response.ApiResponse<>(true, request, "Email sent successfully"));
     }
+
+
 }

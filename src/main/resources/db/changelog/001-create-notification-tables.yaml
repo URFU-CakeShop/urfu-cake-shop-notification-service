@@ -1,0 +1,101 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1-setup-uuid
+      author: Alrons
+      changes:
+        - sql:
+            sql: CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+  - changeSet:
+      id: 2-create-email-templates
+      author: Alrons
+      changes:
+        - createTable:
+            tableName: email_templates
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  defaultValueComputed: uuid_generate_v4()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: template_key
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: subject_template
+                  type: VARCHAR(500)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: body_template
+                  type: TEXT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+
+  - changeSet:
+      id: 3-insert-email-templates
+      author: Alrons
+      changes:
+        - insert:
+            tableName: email_templates
+            columns:
+              - column:
+                  name: id
+                  valueComputed: uuid_generate_v4()
+              - column:
+                  name: template_key
+                  value: "WELCOME_NEW_CUSTOMER"
+              - column:
+                  name: subject_template
+                  value: "Добро пожаловать в Cake Shop! 🍰 Твой сладкий подарок внутри..."
+              - column:
+                  name: body_template
+                  value: "<!DOCTYPE html><html><head><style>body { margin: 0; padding: 0; background-color: #fdf2f4; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; } .wrapper { width: 100%; table-layout: fixed; background-color: #fdf2f4; padding-bottom: 40px; } .main { background-color: #ffffff; margin: 0 auto; width: 100%; max-width: 600px; border-spacing: 0; color: #4a4a4a; border-radius: 15px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05); } .header { background-color: #ffb7c5; padding: 40px; text-align: center; } .header h1 { color: #ffffff; margin: 0; font-size: 28px; text-transform: uppercase; letter-spacing: 2px; } .content { padding: 30px; text-align: center; } .promo-section { background-color: #fff9fa; border: 2px dashed #ffb7c5; border-radius: 10px; margin: 25px 0; padding: 20px; } .promo-code { font-size: 32px; font-weight: bold; color: #d63384; margin: 10px 0; } .btn { background-color: #ff85a1; color: #ffffff !important; padding: 15px 30px; text-decoration: none; border-radius: 25px; font-weight: bold; display: inline-block; margin-top: 20px; } .footer { padding: 20px; text-align: center; font-size: 12px; color: #999; }</style></head><body><div class='wrapper'><table class='main' width='100%'><tr><td class='header'><h1>Cake Shop 🍰</h1></td></tr><tr><td class='content'><h2>Привет, {{firstName}}!</h2><p>Мы так рады, что ты с нами! Теперь ты в самом сладком списке этого города. Мы будем присылать тебе только самые вкусные новости и секретные промокоды.</p><div class='promo-section'><p style='margin:0;'>Твой приветственный бонус:</p><div class='promo-code'>{{promo}}</div><p style='margin:0; font-size: 14px;'>Скидка 15% на первый заказ</p></div><a href='https://cakeshop.com' class='btn'>Заказать тортик</a></td></tr><tr><td class='footer'>&copy; 2026 Кондитерская Cake Shop. Сделано с любовью и щепоткой сахара.<br><a href='#' style='color: #999;'>Отписаться от рассылки</a></td></tr></table></div></body></html>"
+
+        - insert:
+            tableName: email_templates
+            columns:
+              - column:
+                  name: id
+                  valueComputed: uuid_generate_v4()
+              - column:
+                  name: template_key
+                  value: "ORDER_CONFIRMED"
+              - column:
+                  name: subject_template
+                  value: "Заказ №{{orderId}} подтверждён. Начинаем готовить магию! ✨"
+              - column:
+                  name: body_template
+                  value: "<!DOCTYPE html><html><head><style>body { margin: 0; padding: 0; background-color: #fdf2f4; font-family: 'Segoe UI', Arial, sans-serif; } .main { background-color: #ffffff; margin: 20px auto; width: 100%; max-width: 600px; border-radius: 15px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05); } .header { background-color: #ffb7c5; padding: 30px; text-align: center; color: #ffffff; } .content { padding: 30px; line-height: 1.6; color: #4a4a4a; } .status-badge { background-color: #fff0f3; color: #d63384; padding: 10px 20px; border-radius: 20px; display: inline-block; font-weight: bold; margin-bottom: 20px; } .order-info { border-top: 1px solid #eee; border-bottom: 1px solid #eee; margin: 20px 0; padding: 15px 0; } .total { font-size: 20px; font-weight: bold; color: #ff85a1; }</style></head><body><table class='main' align='center'><tr><td class='header'><h1>Cake Shop 🍰</h1></td></tr><tr><td class='content'><div class='status-badge'>Заказ №{{orderId}} принят</div><h2>Здравствуйте, {{name}}!</h2><p>Ваш заказ успешно оформлен! Наши кондитеры уже разогревают духовки и выбирают самые свежие ингредиенты.</p><div class='order-info'><p style='margin:5px 0;'><strong>Сумма к оплате:</strong> <span class='total'>{{totalAmount}} руб.</span></p></div><p>Мы отправим вам еще одно письмо, как только сладости отправятся в путь.</p></td></tr></table></body></html>"
+
+        - insert:
+            tableName: email_templates
+            columns:
+              - column:
+                  name: id
+                  valueComputed: uuid_generate_v4()
+              - column:
+                  name: template_key
+                  value: "ORDER_SHIPPID"
+              - column:
+                  name: subject_template
+                  value: "Ваши сладости уже в пути! 🚚 (Заказ №{{orderId}})"
+              - column:
+                  name: body_template
+                  value: "<!DOCTYPE html><html><head><style>body { margin: 0; padding: 0; background-color: #fdf2f4; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; } .wrapper { width: 100%; table-layout: fixed; background-color: #fdf2f4; padding-bottom: 40px; } .main { background-color: #ffffff; margin: 0 auto; width: 100%; max-width: 600px; border-spacing: 0; color: #4a4a4a; border-radius: 15px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05); } .header { background-color: #ffb7c5; padding: 40px; text-align: center; } .header h1 { color: #ffffff; margin: 0; font-size: 28px; text-transform: uppercase; letter-spacing: 2px; } .content { padding: 30px; text-align: center; } .promo-section { background-color: #fff9fa; border: 2px dashed #ffb7c5; border-radius: 10px; margin: 25px 0; padding: 20px; } .promo-code { font-size: 32px; font-weight: bold; color: #d63384; margin: 10px 0; letter-spacing: 2px; } .btn { background-color: #ff85a1; color: #ffffff !important; padding: 15px 30px; text-decoration: none; border-radius: 25px; font-weight: bold; display: inline-block; margin-top: 20px; } .footer { padding: 20px; text-align: center; font-size: 12px; color: #999; }</style></head><body><div class='wrapper'><table class='main' width='100%'><tr><td class='header'><h1>Cake Shop 🍰</h1></td></tr><tr><td class='content'><h2>Привет, {{firstName}}!</h2><p>Твой заказ <strong>№{{orderId}}</strong> уже передан курьеру и мчится к тебе. Скоро чай с десертами будет на твоём столе!</p><div class='promo-section'><p style='margin:0;'>Твой трек-номер для отслеживания:</p><div class='promo-code'>{{trackingNumber}}</div><p style='margin:0; font-size: 14px;'>Следи за посылкой в любое время 🍡</p></div><a href='#' class='btn'>Отследить заказ</a></td></tr><tr><td class='footer'>&copy; 2026 Кондитерская Cake Shop. Сделано с любовью и щепоткой сахара.<br><a href='#' style='color: #999;'>Отписаться от рассылки</a></td></tr></table></div></body></html>"
