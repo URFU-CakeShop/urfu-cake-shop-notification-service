@@ -11,6 +11,25 @@ services:
       - ./config/notify.env
     networks:
       - cake-shop-network
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15-alpine
+    container_name: cake-shop-notification-db
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-notification_db}
+    ports:
+      - "5432:5432"
+    networks:
+      - cake-shop-network
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
 
 networks:
   cake-shop-network:

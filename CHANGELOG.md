@@ -4,14 +4,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
----
-## [1.0.0] - 2026-04-26
-### Added
-- Added the ability to receive messages via Kafka
+
+## [1.2.1] — 2026-05-17
+
+### Обновлено
+* **Документация API:** Добавлено подробное описание и аннотации Swagger для тестовых контроллеров.
+* **README/CHANGELOG:** Обновлены README и CHANGELOG до актуальных состояний.
 
 ---
-## [0.1.0] - 2026-04-19
-### Added
-- Added the ability to send a message via email (in HTML format)
-- Added Prometheus and Grafana (I didn't add custom metrics)
-- Added the ability to deploy via docker-compose
+
+## [1.2.0] — 2026-05-10
+
+### Добавлено
+* **Динамические шаблоны:** Появилась возможность подставлять и менять значения (переменные) внутри шаблонов уведомлений.
+
+---
+
+## [1.1.0] — 2026-05-03
+
+### Добавлено
+* **Управление шаблонами:** Интегрирована система хранения и управления HTML-шаблонами писем в базе данных.
+
+---
+
+## [1.0.0] — 2026-04-26
+
+### Добавлено
+* **Асинхронное взаимодействие:** Реализован прием и обработка событий/уведомлений через брокер сообщений **Apache Kafka**.
+
+---
+
+## [0.1.0] — 2026-04-19
+
+### Добавлено
+* **Email-сервис:** Базовая функция отправки уведомлений на электронную почту с поддержкой полноценной HTML-верстки.
+* **Мониторинг:** Подключены **Prometheus** и **Grafana** для сбора базовых системных метрик приложения (без кастомных бизнес-метрик).
+* **Контейнеризация:** Настроена сборка и развертывание сервиса «из коробки» с помощью **Docker Compose**.
