@@ -1,0 +1,3 @@
+rootProject.name = 'urfu-cake-shop-notification-service'
+
+includeBuild('../cake-core')

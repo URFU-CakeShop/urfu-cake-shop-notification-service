@@ -1,0 +1,1376 @@
+=== ./CHANGELOG.md ===
+# Changelog
+
+All notable changes to this project will be documented in this file.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+
+## [1.2.1] — 2026-05-17
+
+### Обновлено
+* **Документация API:** Добавлено подробное описание и аннотации Swagger для тестовых контроллеров.
+* **README/CHANGELOG:** Обновлены README и CHANGELOG до актуальных состояний.
+
+---
+
+## [1.2.0] — 2026-05-10
+
+### Добавлено
+* **Динамические шаблоны:** Появилась возможность подставлять и менять значения (переменные) внутри шаблонов уведомлений.
+
+---
+
+## [1.1.0] — 2026-05-03
+
+### Добавлено
+* **Управление шаблонами:** Интегрирована система хранения и управления HTML-шаблонами писем в базе данных.
+
+---
+
+## [1.0.0] — 2026-04-26
+
+### Добавлено
+* **Асинхронное взаимодействие:** Реализован прием и обработка событий/уведомлений через брокер сообщений **Apache Kafka**.
+
+---
+
+## [0.1.0] — 2026-04-19
+
+### Добавлено
+* **Email-сервис:** Базовая функция отправки уведомлений на электронную почту с поддержкой полноценной HTML-верстки.
+* **Мониторинг:** Подключены **Prometheus** и **Grafana** для сбора базовых системных метрик приложения (без кастомных бизнес-метрик).
+* **Контейнеризация:** Настроена сборка и развертывание сервиса «из коробки» с помощью **Docker Compose**.
+
+
+=== ./README.md ===
+# Notification Service
+
+## Назначение
+
+### Сервис отвечает за уведомления пользователей.
+
+<img width="1039" height="894" alt="image" src="https://github.com/user-attachments/assets/8e22ef68-f7a9-4d06-8e0a-f1fde8139d27" />
+
+
+=== ./attached-applications.yml ===
+services:
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TOOLS_LOG4J_PROP: "INFO,CONSOLE"
+    command: >
+      bash -c "export KAFKA_OPTS='-Dzookeeper.admin.enableServer=false' && /etc/confluent/docker/run"
+    healthcheck:
+      test: [ "CMD", "nc", "-z", "localhost", "2181" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - cake-shop-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_ENABLE_KRAFT: "false"
+    healthcheck:
+      test: [ "CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - cake-shop-network
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: [ "/bin/bash", "-c" ]
+    command: |
+      "
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --topic notifications-topic --partitions 3 --replication-factor 1
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --topic notifications-topic.DLQ --partitions 1 --replication-factor 1
+      echo 'Topics created'
+      "
+    networks:
+      - cake-shop-network
+
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - cake-shop-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - cake-shop-network
+
+networks:
+  cake-shop-network:
+    external: true
+
+volumes:
+  prometheus-data:
+  grafana-data:
+
+=== ./build.gradle ===
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.0.5'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.asciidoctor.jvm.convert' version '4.0.5'
+}
+
+group = 'com.example'
+version = '0.0.1-SNAPSHOT'
+description = 'urfu-cake-shop-notification-service'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+ext {
+    set('snippetsDir', file("build/generated-snippets"))
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    runtimeOnly 'org.postgresql:postgresql'
+
+    implementation 'org.springframework.boot:spring-boot-starter-liquibase'
+    implementation("com.samskivert:jmustache:1.16")
+
+    implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'org.apache.kafka:kafka-streams'
+
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
+
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.8'
+
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+
+    implementation 'ru.urfu.cake:connection-starters-core:1.0.0'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.kafka:spring-kafka-test'
+    testImplementation 'org.testcontainers:postgresql:1.20.3'
+    testImplementation 'org.testcontainers:kafka:1.20.3'
+    testImplementation 'org.testcontainers:junit-jupiter:1.20.3'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    outputs.dir snippetsDir
+    useJUnitPlatform()
+}
+
+tasks.named('asciidoctor') {
+    inputs.dir snippetsDir
+    dependsOn test
+}
+
+
+=== ./config/notify.env ===
+# .env
+SPRING_MAIL_HOST=smtp.gmail.com
+SPRING_MAIL_PORT=587
+DB_HOST=cake-shop-notification-db
+KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+SPRING_MAIL_USERNAME=urfucakeshop@gmail.com
+SPRING_MAIL_PASSWORD=lkxm ewhy daxh egrm
+
+
+=== ./config/prometheus.yml ===
+scrape_configs:
+  - job_name: 'spring-boot-app'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['cake-shop-notification-service:8080']
+
+=== ./docker-compose.yml ===
+services:
+
+  notification-service:
+    build:
+      context: ..
+      dockerfile: urfu-cake-shop-notification-service/Dockerfile
+    container_name: cake-shop-notification-service
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./config/notify.env
+    networks:
+      - cake-shop-network
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15-alpine
+    container_name: cake-shop-notification-db
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-notification_db}
+    ports:
+      - "5432:5432"
+    networks:
+      - cake-shop-network
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+
+networks:
+  cake-shop-network:
+    external: true
+
+
+
+=== ./gradle/wrapper/gradle-wrapper.properties ===
+distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\://services.gradle.org/distributions/gradle-9.4.1-bin.zip
+networkTimeout=10000
+validateDistributionUrl=true
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+
+
+=== ./settings.gradle ===
+rootProject.name = 'urfu-cake-shop-notification-service'
+
+includeBuild('../cake-core')
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/UrfuCakeShopNotificationServiceApplication.java ===
+package ru.urfu.cake.shop.notification;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.kafka.annotation.EnableKafkaStreams;
+
+@SpringBootApplication
+@ComponentScan(basePackages = {
+        "ru.urfu.cake.shop.notification",
+        "ru.urfu.cake"
+})
+public class UrfuCakeShopNotificationServiceApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(UrfuCakeShopNotificationServiceApplication.class, args);
+    }
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/configuration/SwaggerConfig.java ===
+package ru.urfu.cake.shop.notification.configuration;
+
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.info.Info;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class SwaggerConfig {
+
+    @Bean
+    public OpenAPI notificationServiceOpenAPI() {
+        return new OpenAPI()
+                .info(new Info()
+                        .title("Notification Service API")
+                        .version("1.0.0")
+                        .description("Email notification sending and template management"));
+    }
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/controller/SenderController.java ===
+package ru.urfu.cake.shop.notification.controller;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.mail.MessagingException;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import ru.urfu.cake.shop.notification.dto.Request.EmailRequest;
+import ru.urfu.cake.shop.notification.service.EmailService;
+
+
+@RestController
+@RequestMapping("/notification")
+@RequiredArgsConstructor
+@Tag(name = "Notifications", description = "Email sending")
+public class SenderController {
+
+    private final EmailService emailService;
+
+    @PostMapping
+    @Operation(summary = "Send an email directly (for testing)")
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Email sent successfully",
+                    content = @Content(schema = @Schema(implementation = ru.urfu.cake.shop.notification.dto.Response.ApiResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "Validation failed / Bad request",
+                    content = @Content(schema = @Schema(implementation = ru.urfu.cake.shop.notification.dto.Response.ApiResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "500",
+                    description = "SMTP transport error / Internal server error",
+                    content = @Content(schema = @Schema(implementation = ru.urfu.cake.shop.notification.dto.Response.ApiResponse.class))
+            )
+    })
+    public ResponseEntity<ru.urfu.cake.shop.notification.dto.Response.ApiResponse<EmailRequest>> sendEmail(
+            @Valid @RequestBody EmailRequest request) throws MessagingException {
+        emailService.sendHtmlEmail(request);
+        return ResponseEntity.ok(new ru.urfu.cake.shop.notification.dto.Response.ApiResponse<>(true, request, "Email sent successfully"));
+    }
+
+
+}
+
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/controller/TemplatesController.java ===
+package ru.urfu.cake.shop.notification.controller;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import ru.urfu.cake.shop.notification.dto.Request.EmailTemplateRequest;
+import ru.urfu.cake.shop.notification.dto.Response.EmailTemplateResponse;
+import ru.urfu.cake.shop.notification.service.TemplateService;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/notification/templates")
+@RequiredArgsConstructor
+@Tag(name = "Notifications templates", description = "Template management")
+public class TemplatesController {
+
+    private final TemplateService templateService;
+
+    @GetMapping
+    @Operation(summary = "Displays all existing templates")
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Templates fetched successfully",
+                    content = @Content(schema = @Schema(implementation = ru.urfu.cake.shop.notification.dto.Response.ApiResponse.class))
+            )
+    })
+    public ResponseEntity<ru.urfu.cake.shop.notification.dto.Response.ApiResponse<List<EmailTemplateResponse>>> getAllTemplates() {
+        return ResponseEntity.ok(new ru.urfu.cake.shop.notification.dto.Response.ApiResponse<>(true, templateService.getAll(), "Templates fetched successfully"));
+    }
+
+    @PostMapping
+    @Operation(summary = "Create or update an email template")
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Template saved successfully",
+                    content = @Content(schema = @Schema(implementation = ru.urfu.cake.shop.notification.dto.Response.ApiResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "Invalid template data",
+                    content = @Content(schema = @Schema(implementation = ru.urfu.cake.shop.notification.dto.Response.ApiResponse.class))
+            )
+    })
+    public ResponseEntity<ru.urfu.cake.shop.notification.dto.Response.ApiResponse<EmailTemplateResponse>> saveTemplate(
+            @Valid @RequestBody EmailTemplateRequest request) {
+        return ResponseEntity.ok(new ru.urfu.cake.shop.notification.dto.Response.ApiResponse<>(true, templateService.save(request), "Template saved successfully"));
+    }
+
+    @DeleteMapping("/{key}")
+    @Operation(summary = "Delete an email template by key")
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "204",
+                    description = "Template deleted successfully (No Content)"
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "Template not found",
+                    content = @Content(schema = @Schema(implementation = ru.urfu.cake.shop.notification.dto.Response.ApiResponse.class))
+            )
+    })
+    public ResponseEntity<Void> deleteTemplate(@PathVariable String key) {
+        templateService.deleteByKey(key);
+        return ResponseEntity.noContent().build();
+    }
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/dto/Request/EmailRequest.java ===
+package ru.urfu.cake.shop.notification.dto.Request;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * DTO for email notification data.
+ * Used both in Kafka Streams pipeline and REST endpoint.
+ *
+ * <p>Sending mode — either:
+ * <ul>
+ *   <li><b>Direct</b>: {@code subject} + {@code htmlContent} are set directly</li>
+ *   <li><b>Template</b>: {@code type} is set, content is resolved via {@link ru.urfu.cake.shop.notification.service.TemplateService}</li>
+ * </ul>
+ */
+@Data
+@Schema(description = "Запрос на отправку уведомления. Поддерживает работу через шаблоны из БД или прямую передачу HTML.")
+public class EmailRequest {
+
+    @Schema(description = "ID пользователя в системе (пока что не где не используется, сойдет все)", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
+    private UUID userId;
+
+    @Schema(description = "Ключ шаблона из базы данных (например, ORDER_CONFIRMED). Если заполнен, поля subject и htmlContent игнорируются.",
+            example = "ORDER_CONFIRMED")
+    private String type;
+
+    @Schema(description = "Технический статус уведомления (пока что не где не используется, сойдет все)", example = "PENDING")
+    private String status;
+
+    @Schema(description = "Данные для подстановки в шаблон. Ключи должны соответствовать переменным {{key}} в теле шаблона.",
+            example = "{\"orderId\": \"12345\", \"name\": \"Alrons\", \"totalAmount\": \"1500\"}")
+    private Map<String, Object> payload;
+
+    @NotBlank(message = "Recipient email must not be blank")
+    @Email(message = "Recipient email must be a valid email address")
+    @Schema(description = "Email получателя", example = "customer@example.com", requiredMode = Schema.RequiredMode.REQUIRED)
+    private String to;
+
+    @Schema(description = "Тема письма. Используется только если не задан 'type' (Direct Mode).",
+            example = "Ваш заказ готов!")
+    private String subject;
+
+    @Schema(description = "Полный HTML код письма. Используется только если не задан 'type' (Direct Mode).",
+            example = "<html><body><h1>Привет!</h1></body></html>")
+    private String htmlContent;
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/dto/Request/EmailTemplateRequest.java ===
+package ru.urfu.cake.shop.notification.dto.Request;
+
+import jakarta.validation.constraints.NotBlank;
+import lombok.Data;
+
+@Data
+public class EmailTemplateRequest {
+
+    @NotBlank(message = "templateKey must not be blank")
+    private String templateKey;
+
+    @NotBlank(message = "subjectTemplate must not be blank")
+    private String subjectTemplate;
+
+    @NotBlank(message = "bodyTemplate must not be blank")
+    private String bodyTemplate;
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/dto/ResolvedEmailContent.java ===
+package ru.urfu.cake.shop.notification.dto;
+
+import lombok.Value;
+
+/**
+ * Immutable result of email content resolution.
+ */
+@Value
+public class ResolvedEmailContent {
+    String subject;
+    String htmlBody;
+}
+
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/dto/Response/ApiResponse.java ===
+package ru.urfu.cake.shop.notification.dto.Response;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class ApiResponse<T> {
+    private boolean success;
+    private T data;
+    private String message;
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/dto/Response/EmailTemplateResponse.java ===
+package ru.urfu.cake.shop.notification.dto.Response;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Builder;
+import lombok.Value;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Value
+@Builder
+@Schema(description = "Данные шаблона email-уведомления")
+public class EmailTemplateResponse {
+
+    @Schema(description = "Уникальный идентификатор шаблона в БД", example = "550e8400-e29b-41d4-a716-446655440000")
+    public UUID id;
+
+    @Schema(description = "Уникальный ключ шаблона", example = "ORDER_CONFIRMED")
+    public String templateKey;
+
+    @Schema(description = "Шаблон темы письма (поддерживает переменные {{...}})",
+            example = "Заказ №{{orderId}} подтверждён! 🍰")
+    public String subjectTemplate;
+
+    @Schema(description = "HTML-шаблон тела письма (поддерживает переменные {{...}})",
+            example = "<!DOCTYPE html><html>...<h2>Привет, {{name}}!</h2>...</html>")
+    public String bodyTemplate;
+
+    @Schema(description = "Дата и время создания шаблона")
+    public LocalDateTime createdAt;
+
+    @Schema(description = "Дата и время последнего обновления шаблона")
+    public LocalDateTime updatedAt;
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/entity/EmailTemplate.java ===
+package ru.urfu.cake.shop.notification.entity;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Entity
+@Table(name = "email_templates")
+@EntityListeners(AuditingEntityListener.class)
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class EmailTemplate {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @Column(name = "template_key", unique = true, nullable = false)
+    private String templateKey;
+
+    @Column(name = "subject_template", nullable = false, length = 500)
+    private String subjectTemplate;
+
+    @Column(name = "body_template", columnDefinition = "TEXT", nullable = false)
+    private String bodyTemplate;
+
+    @CreatedDate
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @LastModifiedDate
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/handler/GlobalExceptionHandler.java ===
+package ru.urfu.cake.shop.notification.handler;
+
+import jakarta.persistence.EntityNotFoundException;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import ru.urfu.cake.shop.notification.dto.Response.ApiResponse;
+
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Slf4j
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiResponse<Map<String, String>>> handleValidation(MethodArgumentNotValidException ex) {
+        Map<String, String> errors = ex.getBindingResult().getFieldErrors().stream()
+                .collect(Collectors.toMap(
+                        FieldError::getField,
+                        FieldError::getDefaultMessage,
+                        (a, b) -> a));
+
+        ApiResponse<Map<String, String>> response = new ApiResponse<>(
+                false,
+                errors,
+                "Validation failed"
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response); // HTTP 400
+    }
+
+    @ExceptionHandler(EntityNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotFound(EntityNotFoundException ex) {
+        log.warn("Entity not found: {}", ex.getMessage());
+
+        ApiResponse<Void> response = new ApiResponse<>(
+                false,
+                null,
+                ex.getMessage()
+        );
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response); // HTTP 404
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse<Void>> handleIllegalArgument(IllegalArgumentException ex) {
+        log.warn("Bad request: {}", ex.getMessage());
+
+        ApiResponse<Void> response = new ApiResponse<>(
+                false,
+                null,
+                ex.getMessage()
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response); // HTTP 400
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiResponse<Void>> handleGeneric(Exception ex) {
+        log.error("Unexpected error: {}", ex.getMessage(), ex);
+
+        ApiResponse<Void> response = new ApiResponse<>(
+                false,
+                null,
+                "Internal server error. Please try again later."
+        );
+
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response); // HTTP 500
+    }
+}
+
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/listener/NotificationStreamProcessor.java ===
+package ru.urfu.cake.shop.notification.listener;
+
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.common.serialization.Serdes;
+import org.apache.kafka.streams.StreamsBuilder;
+import org.apache.kafka.streams.kstream.Consumed;
+import org.apache.kafka.streams.kstream.KStream;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import ru.urfu.cake.dlq.DeadLetterPublisher;
+import ru.urfu.cake.serde.JsonSerde;
+import ru.urfu.cake.shop.notification.dto.Request.EmailRequest;
+import ru.urfu.cake.shop.notification.service.EmailService;
+
+/**
+ * Kafka Streams processor for incoming notification messages.
+ *
+ * <p>Responsibilities:
+ * <ul>
+ *   <li>Filter invalid messages</li>
+ *   <li>Delegate sending to {@link EmailService}</li>
+ *   <li>Route failures to DLQ via {@link DeadLetterPublisher}</li>
+ *   <li>Record metrics</li>
+ * </ul>
+ */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class NotificationStreamProcessor {
+
+    static final String SOURCE_TOPIC = "notifications-topic";
+    static final String STATUS_SENT = "SENT";
+    static final String STATUS_FAILED = "FAILED";
+
+    private final EmailService emailService;
+    private final DeadLetterPublisher deadLetterPublisher;
+    private final MeterRegistry meterRegistry;
+
+    @Autowired
+    public void buildPipeline(StreamsBuilder builder) {
+        JsonSerde<EmailRequest> serde = new JsonSerde<>(EmailRequest.class);
+
+        KStream<String, EmailRequest> stream = builder
+                .stream(SOURCE_TOPIC, Consumed.with(Serdes.String(), serde));
+
+        stream
+                .filter(this::isValid)
+                .foreach(this::processMessage);
+    }
+
+    boolean isValid(String key, EmailRequest request) {
+        if (request == null) {
+            log.warn("Received null message, key={} — skipping", key);
+            return false;
+        }
+        if (request.getTo() == null || request.getTo().isBlank()) {
+            log.warn("Missing recipient in message key={} — skipping", key);
+            return false;
+        }
+        return true;
+    }
+
+    void processMessage(String key, EmailRequest request) {
+        log.info("Processing notification key={} to={} type={}", key, request.getTo(), request.getType());
+        Timer.Sample sample = Timer.start(meterRegistry);
+
+        try {
+            emailService.sendHtmlEmail(request);
+            recordSuccess(sample);
+        } catch (Exception ex) {
+            recordFailure(sample, ex);
+            deadLetterPublisher.publish(SOURCE_TOPIC, key, request.getTo(), null, ex);
+        }
+    }
+
+    private void recordSuccess(Timer.Sample sample) {
+        sample.stop(emailTimer("success"));
+        meterRegistry.counter("notification.email.sent", "status", "success").increment();
+    }
+
+    private void recordFailure(Timer.Sample sample, Exception ex) {
+        sample.stop(emailTimer("error"));
+        meterRegistry.counter("notification.email.sent", "status", "failed").increment();
+        log.error("Failed to process notification: {}", ex.getMessage(), ex);
+    }
+
+    private Timer emailTimer(String status) {
+        return meterRegistry.timer("notification.email.duration", "status", status);
+    }
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/repository/TemplateRepository.java ===
+package ru.urfu.cake.shop.notification.repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+import ru.urfu.cake.shop.notification.entity.EmailTemplate;
+
+import java.util.Optional;
+import java.util.UUID;
+
+@Repository
+public interface TemplateRepository extends JpaRepository<EmailTemplate, UUID> {
+
+    Optional<EmailTemplate> findByTemplateKey(String templateKey);
+
+    boolean existsByTemplateKey(String templateKey);
+
+    void deleteByTemplateKey(String templateKey);
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/service/EmailContentResolver.java ===
+package ru.urfu.cake.shop.notification.service;
+
+import ru.urfu.cake.shop.notification.dto.Request.EmailRequest;
+import ru.urfu.cake.shop.notification.dto.ResolvedEmailContent;
+
+/**
+ * Resolves the final subject and HTML body for an email.
+ * Handles both direct-content and template-based modes.
+ */
+public interface EmailContentResolver {
+
+    /**
+     * Resolves subject and HTML body from the request.
+     *
+     * @param request email request
+     * @return resolved content (subject + htmlBody)
+     * @throws IllegalArgumentException if content cannot be resolved
+     */
+    ResolvedEmailContent resolve(EmailRequest request);
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/service/EmailService.java ===
+package ru.urfu.cake.shop.notification.service;
+
+import jakarta.mail.MessagingException;
+import ru.urfu.cake.shop.notification.dto.Request.EmailRequest;
+
+/**
+ * Contract for sending email notifications.
+ * Implementations are responsible only for transport — content resolution
+ * is delegated to {@link EmailContentResolver}.
+ */
+public interface EmailService {
+
+    /**
+     * Sends an HTML email based on the given request.
+     * Content is resolved via template if {@code request.type} is provided;
+     * otherwise {@code request.subject} and {@code request.htmlContent} are used directly.
+     *
+     * @param request notification data
+     * @throws MessagingException       if a JavaMail transport error occurs
+     * @throws IllegalArgumentException if required fields are missing
+     */
+    void sendHtmlEmail(EmailRequest request) throws MessagingException;
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/service/TemplateProcessor.java ===
+package ru.urfu.cake.shop.notification.service;
+
+import java.util.Map;
+
+/**
+ * Performs placeholder substitution in template strings.
+ * Placeholder syntax: {@code ${key}}.
+ */
+public interface TemplateProcessor {
+
+    /**
+     * Replaces all {@code ${key}} placeholders in {@code template}
+     * with corresponding values from {@code variables}.
+     * Unknown placeholders are left as-is and a warning is logged.
+     *
+     * @param template  template string, may be null (returns empty string)
+     * @param variables substitution map, may be null (returns template unchanged)
+     * @return processed string
+     */
+    String process(String template, Map<String, Object> variables);
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/service/TemplateService.java ===
+package ru.urfu.cake.shop.notification.service;
+
+import ru.urfu.cake.shop.notification.dto.Request.EmailTemplateRequest;
+import ru.urfu.cake.shop.notification.dto.Response.EmailTemplateResponse;
+import ru.urfu.cake.shop.notification.entity.EmailTemplate;
+
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Contract for managing email templates.
+ */
+public interface TemplateService {
+
+    List<EmailTemplateResponse> getAll();
+
+    EmailTemplateResponse save(EmailTemplateRequest request);
+
+    void deleteByKey(String key);
+
+    Optional<EmailTemplate> findByKey(String key);
+
+    EmailTemplate getByKeyOrThrow(String key);
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/service/impl/EmailContentResolverImpl.java ===
+package ru.urfu.cake.shop.notification.service.impl;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+import ru.urfu.cake.shop.notification.dto.Request.EmailRequest;
+import ru.urfu.cake.shop.notification.dto.ResolvedEmailContent;
+import ru.urfu.cake.shop.notification.entity.EmailTemplate;
+import ru.urfu.cake.shop.notification.service.EmailContentResolver;
+import ru.urfu.cake.shop.notification.service.TemplateProcessor;
+import ru.urfu.cake.shop.notification.service.TemplateService;
+
+/**
+ * Resolves email content either from template (by {@code request.type})
+ * or directly from {@code request.subject} / {@code request.htmlContent}.
+ */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class EmailContentResolverImpl implements EmailContentResolver {
+
+    private final TemplateService templateService;
+    private final TemplateProcessor templateProcessor;
+
+    @Override
+    public ResolvedEmailContent resolve(EmailRequest request) {
+        if (isTemplateMode(request)) {
+            return resolveFromTemplate(request);
+        }
+        return resolveDirectly(request);
+    }
+
+    private ResolvedEmailContent resolveFromTemplate(EmailRequest request) {
+        log.debug("Resolving email content from template '{}'", request.getType());
+        EmailTemplate template = templateService.getByKeyOrThrow(request.getType());
+
+        String subject = templateProcessor.process(template.getSubjectTemplate(), request.getPayload());
+        String body = templateProcessor.process(template.getBodyTemplate(), request.getPayload());
+
+        return new ResolvedEmailContent(subject, body);
+    }
+
+    private ResolvedEmailContent resolveDirectly(EmailRequest request) {
+        String htmlBody = request.getHtmlContent();
+        if (htmlBody == null || htmlBody.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Email body is missing: provide 'htmlContent' directly or set 'type' to use a template."
+            );
+        }
+        String subject = request.getSubject() != null ? request.getSubject() : "(no subject)";
+        return new ResolvedEmailContent(subject, htmlBody);
+    }
+
+    private boolean isTemplateMode(EmailRequest request) {
+        return request.getType() != null && !request.getType().isBlank();
+    }
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/service/impl/EmailServiceImpl.java ===
+package ru.urfu.cake.shop.notification.service.impl;
+
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.stereotype.Service;
+import ru.urfu.cake.shop.notification.dto.Request.EmailRequest;
+import ru.urfu.cake.shop.notification.dto.ResolvedEmailContent;
+import ru.urfu.cake.shop.notification.service.EmailContentResolver;
+import ru.urfu.cake.shop.notification.service.EmailService;
+
+/**
+ * Sends HTML emails via JavaMailSender.
+ * Content resolution is fully delegated to {@link EmailContentResolver}.
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class EmailServiceImpl implements EmailService {
+
+    private final JavaMailSender mailSender;
+    private final EmailContentResolver contentResolver;
+
+    @Value("${spring.mail.username}")
+    private String fromEmail;
+
+    @Override
+    public void sendHtmlEmail(EmailRequest request) throws MessagingException {
+        log.debug("Preparing MimeMessage for recipient={}", request.getTo());
+
+        ResolvedEmailContent content = contentResolver.resolve(request);
+
+        MimeMessage message = mailSender.createMimeMessage();
+        MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+        helper.setFrom(fromEmail);
+        helper.setTo(request.getTo());
+        helper.setSubject(content.getSubject());
+        helper.setText(content.getHtmlBody(), true);
+
+        mailSender.send(message);
+        log.info("Email sent successfully to={}", request.getTo());
+    }
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/service/impl/TemplateProcessorImpl.java ===
+package ru.urfu.cake.shop.notification.service.impl;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+import ru.urfu.cake.shop.notification.service.TemplateProcessor;
+import com.samskivert.mustache.Mustache;
+
+import java.util.Map;
+
+@Slf4j
+@Component
+public class TemplateProcessorImpl implements TemplateProcessor {
+
+    @Override
+    public String process(String template, Map<String, Object> variables) {
+        if (template == null) return "";
+        if (variables == null || variables.isEmpty()) return template;
+
+        // Заполняем шаблон
+        String result = Mustache.compiler()
+                .defaultValue("ДАННЫЕ ОТСУТСТВУЮТ") // пока что так.
+                .compile(template)
+                .execute(variables);
+
+        return result;
+    }
+}
+
+=== ./src/main/java/ru/urfu/cake/shop/notification/service/impl/TemplateServiceImpl.java ===
+package ru.urfu.cake.shop.notification.service.impl;
+
+import jakarta.persistence.EntityNotFoundException;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import ru.urfu.cake.shop.notification.dto.Request.EmailTemplateRequest;
+import ru.urfu.cake.shop.notification.dto.Response.EmailTemplateResponse;
+import ru.urfu.cake.shop.notification.entity.EmailTemplate;
+import ru.urfu.cake.shop.notification.repository.TemplateRepository;
+import ru.urfu.cake.shop.notification.service.TemplateService;
+
+import java.util.List;
+import java.util.Optional;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class TemplateServiceImpl implements TemplateService {
+
+    private final TemplateRepository templateRepository;
+
+    @Override
+    @Transactional
+    public List<EmailTemplateResponse> getAll() {
+        return templateRepository.findAll().stream()
+                .map(this::buildResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public EmailTemplateResponse save(EmailTemplateRequest request) {
+        EmailTemplate template = templateRepository.findByTemplateKey(request.getTemplateKey())
+                .orElseGet(EmailTemplate::new);
+
+        template.setTemplateKey(request.getTemplateKey());
+        template.setSubjectTemplate(request.getSubjectTemplate());
+        template.setBodyTemplate(request.getBodyTemplate());
+
+        EmailTemplate saved = templateRepository.save(template);
+        log.info("Template '{}' saved (id={})", saved.getTemplateKey(), saved.getId());
+        return buildResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public void deleteByKey(String key) {
+        if (!templateRepository.existsByTemplateKey(key)) {
+            throw new EntityNotFoundException("Template not found: " + key);
+        }
+        templateRepository.deleteByTemplateKey(key);
+        log.info("Template '{}' deleted", key);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<EmailTemplate> findByKey(String key) {
+        return templateRepository.findByTemplateKey(key);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public EmailTemplate getByKeyOrThrow(String key) {
+        return templateRepository.findByTemplateKey(key)
+                .orElseThrow(() -> new EntityNotFoundException("Email template not found for key: " + key));
+    }
+
+
+    private EmailTemplateResponse buildResponse(EmailTemplate response) {
+        return EmailTemplateResponse.builder().
+                id(response.getId())
+                .templateKey(response.getTemplateKey())
+                .subjectTemplate(response.getSubjectTemplate())
+                .bodyTemplate(response.getBodyTemplate())
+                .createdAt(response.getCreatedAt())
+                .updatedAt(response.getUpdatedAt()).build();
+    }
+}
+
+=== ./src/main/resources/application.yml ===
+spring:
+  application:
+    name: notification-service
+
+  mail:
+    host: ${SPRING_MAIL_HOST}
+    port: ${SPRING_MAIL_PORT}
+    username: ${SPRING_MAIL_USERNAME}
+    password: ${SPRING_MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+        transport:
+          protocol: smtp
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:5432/${DB_NAME:notification_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+    enabled: true
+
+cake:
+  kafka:
+    streams:
+      state-dir: /tmp/kafka-streams
+      application-id: notification-service
+      bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+      num-stream-threads: 2
+      topology-logging: true
+      dlq:
+        enable: true
+management:
+  endpoints:
+    web:
+      exposure:
+        include: info,prometheus,health
+  endpoint:
+    health:
+      show-details: when_authorized
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        "[http.server.requests]": true
+        "[notification.email.duration]": true
+      slo:
+        "[http.server.requests]": 500ms,1s,5s
+        "[notification.email.duration]": 500ms,1s,5s
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  level:
+    ru.urfu.cake.shop.notification: INFO
+    org.springframework.kafka: WARN
+    liquibase: DEBUG
+    org.springframework.boot.autoconfigure.liquibase: DEBUG
+
+=== ./src/main/resources/db/changelog/001-create-notification-tables.yaml ===
+databaseChangeLog:
+  - changeSet:
+      id: 1-setup-uuid
+      author: Alrons
+      changes:
+        - sql:
+            sql: CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+  - changeSet:
+      id: 2-create-email-templates
+      author: Alrons
+      changes:
+        - createTable:
+            tableName: email_templates
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  defaultValueComputed: uuid_generate_v4()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: template_key
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: subject_template
+                  type: VARCHAR(500)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: body_template
+                  type: TEXT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+
+  - changeSet:
+      id: 3-insert-email-templates
+      author: Alrons
+      changes:
+        - insert:
+            tableName: email_templates
+            columns:
+              - column:
+                  name: id
+                  valueComputed: uuid_generate_v4()
+              - column:
+                  name: template_key
+                  value: "WELCOME_NEW_CUSTOMER"
+              - column:
+                  name: subject_template
+                  value: "Добро пожаловать в Cake Shop! 🍰 Твой сладкий подарок внутри..."
+              - column:
+                  name: body_template
+                  value: "<!DOCTYPE html><html><head><style>body { margin: 0; padding: 0; background-color: #fdf2f4; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; } .wrapper { width: 100%; table-layout: fixed; background-color: #fdf2f4; padding-bottom: 40px; } .main { background-color: #ffffff; margin: 0 auto; width: 100%; max-width: 600px; border-spacing: 0; color: #4a4a4a; border-radius: 15px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05); } .header { background-color: #ffb7c5; padding: 40px; text-align: center; } .header h1 { color: #ffffff; margin: 0; font-size: 28px; text-transform: uppercase; letter-spacing: 2px; } .content { padding: 30px; text-align: center; } .promo-section { background-color: #fff9fa; border: 2px dashed #ffb7c5; border-radius: 10px; margin: 25px 0; padding: 20px; } .promo-code { font-size: 32px; font-weight: bold; color: #d63384; margin: 10px 0; } .btn { background-color: #ff85a1; color: #ffffff !important; padding: 15px 30px; text-decoration: none; border-radius: 25px; font-weight: bold; display: inline-block; margin-top: 20px; } .footer { padding: 20px; text-align: center; font-size: 12px; color: #999; }</style></head><body><div class='wrapper'><table class='main' width='100%'><tr><td class='header'><h1>Cake Shop 🍰</h1></td></tr><tr><td class='content'><h2>Привет, {{firstName}}!</h2><p>Мы так рады, что ты с нами! Теперь ты в самом сладком списке этого города. Мы будем присылать тебе только самые вкусные новости и секретные промокоды.</p><div class='promo-section'><p style='margin:0;'>Твой приветственный бонус:</p><div class='promo-code'>{{promo}}</div><p style='margin:0; font-size: 14px;'>Скидка 15% на первый заказ</p></div><a href='https://cakeshop.com' class='btn'>Заказать тортик</a></td></tr><tr><td class='footer'>&copy; 2026 Кондитерская Cake Shop. Сделано с любовью и щепоткой сахара.<br><a href='#' style='color: #999;'>Отписаться от рассылки</a></td></tr></table></div></body></html>"
+
+        - insert:
+            tableName: email_templates
+            columns:
+              - column:
+                  name: id
+                  valueComputed: uuid_generate_v4()
+              - column:
+                  name: template_key
+                  value: "ORDER_CONFIRMED"
+              - column:
+                  name: subject_template
+                  value: "Заказ №{{orderId}} подтверждён. Начинаем готовить магию! ✨"
+              - column:
+                  name: body_template
+                  value: "<!DOCTYPE html><html><head><style>body { margin: 0; padding: 0; background-color: #fdf2f4; font-family: 'Segoe UI', Arial, sans-serif; } .main { background-color: #ffffff; margin: 20px auto; width: 100%; max-width: 600px; border-radius: 15px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05); } .header { background-color: #ffb7c5; padding: 30px; text-align: center; color: #ffffff; } .content { padding: 30px; line-height: 1.6; color: #4a4a4a; } .status-badge { background-color: #fff0f3; color: #d63384; padding: 10px 20px; border-radius: 20px; display: inline-block; font-weight: bold; margin-bottom: 20px; } .order-info { border-top: 1px solid #eee; border-bottom: 1px solid #eee; margin: 20px 0; padding: 15px 0; } .total { font-size: 20px; font-weight: bold; color: #ff85a1; }</style></head><body><table class='main' align='center'><tr><td class='header'><h1>Cake Shop 🍰</h1></td></tr><tr><td class='content'><div class='status-badge'>Заказ №{{orderId}} принят</div><h2>Здравствуйте, {{name}}!</h2><p>Ваш заказ успешно оформлен! Наши кондитеры уже разогревают духовки и выбирают самые свежие ингредиенты.</p><div class='order-info'><p style='margin:5px 0;'><strong>Сумма к оплате:</strong> <span class='total'>{{totalAmount}} руб.</span></p></div><p>Мы отправим вам еще одно письмо, как только сладости отправятся в путь.</p></td></tr></table></body></html>"
+
+        - insert:
+            tableName: email_templates
+            columns:
+              - column:
+                  name: id
+                  valueComputed: uuid_generate_v4()
+              - column:
+                  name: template_key
+                  value: "ORDER_SHIPPID"
+              - column:
+                  name: subject_template
+                  value: "Ваши сладости уже в пути! 🚚 (Заказ №{{orderId}})"
+              - column:
+                  name: body_template
+                  value: "<!DOCTYPE html><html><head><style>body { margin: 0; padding: 0; background-color: #fdf2f4; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; } .wrapper { width: 100%; table-layout: fixed; background-color: #fdf2f4; padding-bottom: 40px; } .main { background-color: #ffffff; margin: 0 auto; width: 100%; max-width: 600px; border-spacing: 0; color: #4a4a4a; border-radius: 15px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05); } .header { background-color: #ffb7c5; padding: 40px; text-align: center; } .header h1 { color: #ffffff; margin: 0; font-size: 28px; text-transform: uppercase; letter-spacing: 2px; } .content { padding: 30px; text-align: center; } .promo-section { background-color: #fff9fa; border: 2px dashed #ffb7c5; border-radius: 10px; margin: 25px 0; padding: 20px; } .promo-code { font-size: 32px; font-weight: bold; color: #d63384; margin: 10px 0; letter-spacing: 2px; } .btn { background-color: #ff85a1; color: #ffffff !important; padding: 15px 30px; text-decoration: none; border-radius: 25px; font-weight: bold; display: inline-block; margin-top: 20px; } .footer { padding: 20px; text-align: center; font-size: 12px; color: #999; }</style></head><body><div class='wrapper'><table class='main' width='100%'><tr><td class='header'><h1>Cake Shop 🍰</h1></td></tr><tr><td class='content'><h2>Привет, {{firstName}}!</h2><p>Твой заказ <strong>№{{orderId}}</strong> уже передан курьеру и мчится к тебе. Скоро чай с десертами будет на твоём столе!</p><div class='promo-section'><p style='margin:0;'>Твой трек-номер для отслеживания:</p><div class='promo-code'>{{trackingNumber}}</div><p style='margin:0; font-size: 14px;'>Следи за посылкой в любое время 🍡</p></div><a href='#' class='btn'>Отследить заказ</a></td></tr><tr><td class='footer'>&copy; 2026 Кондитерская Cake Shop. Сделано с любовью и щепоткой сахара.<br><a href='#' style='color: #999;'>Отписаться от рассылки</a></td></tr></table></div></body></html>"
+
+=== ./src/main/resources/db/changelog/db.changelog-master.yaml ===
+databaseChangeLog:
+  - include:
+      file: db/changelog/001-create-notification-tables.yaml
+
+=== ./src/test/java/ru/urfu/cake/shop/notification/UrfuCakeShopNotificationServiceApplicationTests.java ===
+package ru.urfu.cake.shop.notification;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+
+@SpringBootTest
+class UrfuCakeShopNotificationServiceApplicationTests {
+
+    @Test
+    void contextLoads() {
+    }
+
+}
+
+
